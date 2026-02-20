@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0
+menu "Learning character devices"
+
+config LEARNING_CHARDEV
+	tristate "Simple learning character device"
+	help
+	  Build a tiny character-device example for driver learning and
+	  GDB practice.
+
+	  Device node:
+	    /dev/learn_char0
+
+	  Useful GDB breakpoints:
+	    learn_char_init
+	    learn_char_open
+	    learn_char_read
+	    learn_char_write
+	    learn_char_release
+
+endmenu
+

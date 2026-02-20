@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0
+menuconfig LEARNING_DRIVERS
+	bool "Learning drivers (local experiments)"
+	help
+	  Enable local learning drivers used for kernel debugging practice.
+	  This menu is intended for iterative experiments (for example in
+	  QEMU/i.MX6UL) and can be extended with more driver categories later.
+
+if LEARNING_DRIVERS
+
+source "drivers/learning/chardev/Kconfig"
+
+endif
+

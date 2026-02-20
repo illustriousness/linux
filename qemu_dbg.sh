@@ -24,6 +24,17 @@ DTB_IMAGE="${DTB_IMAGE:-$OUT_DIR/arch/arm/boot/dts/nxp/imx/imx6ul-14x14-evk.dtb}
 
 # GDB 远程调试端口。
 GDB_PORT="${GDB_PORT:-1234}"
+# vmlinux 路径（用于生成 GDB 加载符号脚本）。
+VMLINUX_PATH="${VMLINUX_PATH:-$OUT_DIR/vmlinux}"
+# 本地 GDB 可执行文件（仅用于打印 attach 命令）。
+GDB_BIN="${GDB_BIN:-gdb-multiarch}"
+# 1=生成 GDB 命令脚本，0=不生成。
+GEN_GDB_SCRIPT="${GEN_GDB_SCRIPT:-1}"
+# GDB 脚本输出路径。
+GDB_SCRIPT="${GDB_SCRIPT:-$OUT_DIR/qemu_imx6ul.gdb}"
+# 默认断点列表（可通过 GDB_BREAKPOINTS 覆盖）。
+DEFAULT_GDB_BREAKPOINTS="start_kernel rest_init learn_char_init learn_char_open learn_char_read learn_char_write learn_char_ioctl learn_char_release"
+GDB_BREAKPOINTS="${GDB_BREAKPOINTS:-$DEFAULT_GDB_BREAKPOINTS}"
 
 # 手动开关：1=使用 NFS 根文件系统，0=使用 initramfs。
 USE_NFS_ROOT=1
@@ -99,6 +110,50 @@ if [[ "$USE_NFS_ROOT" != "0" && "$USE_NFS_ROOT" != "1" ]]; then
   echo "ERROR: invalid USE_NFS_ROOT value: $USE_NFS_ROOT (expected 0 or 1)"
   # 失败退出。
   exit 1
+fi
+
+# 生成 GDB 命令脚本，避免每次手动输入常用命令。
+write_gdb_script() {
+  local bp
+
+  mkdir -p "$(dirname "$GDB_SCRIPT")"
+  {
+    echo "set pagination off"
+    echo "set confirm off"
+    echo "set breakpoint pending on"
+    echo "set print pretty on"
+    echo "file $VMLINUX_PATH"
+    if [[ -f "$ROOT_DIR/scripts/gdb/vmlinux-gdb.py" ]]; then
+      echo "add-auto-load-safe-path $ROOT_DIR/scripts/gdb"
+      echo "source $ROOT_DIR/scripts/gdb/vmlinux-gdb.py"
+    fi
+    echo "target remote :$GDB_PORT"
+    for bp in $GDB_BREAKPOINTS; do
+      echo "break $bp"
+    done
+    echo "printf \"Connected to QEMU gdbstub :$GDB_PORT\\n\""
+    echo "echo Use 'c' to continue kernel execution\\n"
+  } > "$GDB_SCRIPT"
+}
+
+if [[ "$GEN_GDB_SCRIPT" != "0" && "$GEN_GDB_SCRIPT" != "1" ]]; then
+  echo "ERROR: invalid GEN_GDB_SCRIPT value: $GEN_GDB_SCRIPT (expected 0 or 1)"
+  exit 1
+fi
+
+if [[ "$GEN_GDB_SCRIPT" == "1" ]]; then
+  write_gdb_script
+  echo "gdb-script: $GDB_SCRIPT"
+  if [[ ! -f "$VMLINUX_PATH" ]]; then
+    echo "WARN: vmlinux not found: $VMLINUX_PATH"
+    echo "      run ./build.sh first to get full symbols"
+  fi
+  if command -v "$GDB_BIN" >/dev/null 2>&1; then
+    echo "attach-cmd: $GDB_BIN -x $GDB_SCRIPT"
+  else
+    echo "WARN: gdb binary not found: $GDB_BIN"
+    echo "      install gdb-multiarch or set GDB_BIN"
+  fi
 fi
 
 # 创建临时 dtb 文件，用于注入本次 bootargs。
