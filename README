@@ -154,3 +154,35 @@ Communication and Support
 * Bugzilla: https://bugzilla.kernel.org/
 * MAINTAINERS file: Lists subsystem maintainers and mailing lists
 * Email Clients: Documentation/process/email-clients.rst
+
+  prepare_initramfs_debug.sh 现在做的是:
+
+  1. 检查/生成 out/.config
+  2. 打开调试选项（DEBUG_INFO 等）
+  3. 调用 prepare_initramfs.sh
+  4. 检查 .cmd 里的实际编译优化参数
+
+  prepare_initramfs.sh 做的是:
+
+  1. 准备 kernel .config
+  2. distclean + defconfig + 编译 BusyBox
+  3. 安装 BusyBox 到 /tmp/initramfs-root 并写 /init
+  4. 打包 /tmp/initramfs.cpio.gz
+  5. 写内核配置 INITRAMFS_SOURCE
+  6. 编译 Image + dtbs
+
+  你平时增量调试可以只跑内核编译（不重编 BusyBox）:
+
+  make -C /home/lyc/code/git/linux O=/home/lyc/code/git/linux/out \
+    ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j$(nproc) Image dtbs
+
+  前提:
+
+  - out/.config 里已经有 INITRAMFS_SOURCE="/tmp/initramfs.cpio.gz"
+  - /tmp/initramfs.cpio.gz 还存在（重启后 /tmp 可能丢失）
+
+  只有这几种情况才需要重跑完整脚本:
+
+  1. BusyBox 配置或源码改了
+  2. /init 或 initramfs 内容改了
+  3. /tmp/initramfs.cpio.gz 不在了

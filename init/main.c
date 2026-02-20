@@ -713,26 +713,32 @@ static noinline void __ref __noreturn rest_init(void)
 	struct task_struct *tsk;
 	int pid;
 
+	/* 将 RCU 调度器状态从早期启动阶段切换到可调度阶段。 */
 	rcu_scheduler_starting();
 	/*
 	 * We need to spawn init first so that it obtains pid 1, however
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
+	/* 创建 PID 1 上下文：先执行 kernel_init()，随后再 exec 用户态 init。 */
 	pid = user_mode_thread(kernel_init, NULL, CLONE_FS);
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working
 	 * until sched_init_smp() has been run. It will set the allowed
 	 * CPUs for init to the non isolated CPUs.
 	 */
+	/* 找到 PID 1 对应任务，并在 SMP 完整就绪前临时固定在 boot CPU。 */
 	rcu_read_lock();
 	tsk = find_task_by_pid_ns(pid, &init_pid_ns);
 	tsk->flags |= PF_NO_SETAFFINITY;
 	set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id()));
 	rcu_read_unlock();
 
+	/* 在创建全局 kthread 管理线程前，先建立默认 NUMA 策略。 */
 	numa_default_policy();
+	/* 创建 kthreadd（PID 2）：后续内核线程都由它派生。 */
 	pid = kernel_thread(kthreadd, NULL, NULL, CLONE_FS | CLONE_FILES);
+	/* 发布 kthreadd_task 指针，供其他子系统安全创建 kthread。 */
 	rcu_read_lock();
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
@@ -744,14 +750,17 @@ static noinline void __ref __noreturn rest_init(void)
 	 * CONFIG_PREEMPT_VOLUNTARY=y the init task might have scheduled
 	 * already, but it's stuck on the kthreadd_done completion.
 	 */
+	/* 核心调度线程已就绪，现在启用正常调度检查。 */
 	system_state = SYSTEM_SCHEDULING;
 
+	/* 唤醒 PID 1：kernel_init() 之前一直在等 kthreadd 就绪。 */
 	complete(&kthreadd_done);
 
 	/*
 	 * The boot idle thread must execute schedule()
 	 * at least once to get things moving:
 	 */
+	/* 先让调度器真正跑一轮，然后进入架构 idle 循环。 */
 	schedule_preempt_disabled();
 	/* Call into cpu_idle with preempt disabled */
 	cpu_startup_entry(CPUHP_ONLINE);
@@ -1007,25 +1016,27 @@ void start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
+	/* 启动最早期：设置栈尾魔数、CPU 编号、调试对象和 build-id。 */
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
 	debug_objects_early_init();
 	init_vmlinux_build_id();
 
+	/* cgroup 的早期数据结构初始化。 */
 	cgroup_init_early();
 
+	/* 启动阶段先关闭本地中断，后续关键初始化在关中断条件下完成。 */
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
 
 	/*
-	 * Interrupts are still disabled. Do necessary setups, then
-	 * enable them.
+	 * 中断仍然关闭：先完成架构与核心子系统必需初始化，再开启中断。
 	 */
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	setup_arch(&command_line);
-	/* Static keys and static calls are needed by LSMs */
+	/* LSM 依赖 static key/static call，需在安全模块前准备好。 */
 	jump_label_init();
 	static_call_init();
 	early_security_init();
@@ -1033,12 +1044,12 @@ void start_kernel(void)
 	setup_command_line(command_line);
 	setup_nr_cpu_ids();
 	setup_per_cpu_areas();
-	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+	smp_prepare_boot_cpu();	/* 架构相关的 boot CPU 预处理钩子 */
 	early_numa_node_init();
 	boot_cpu_hotplug_init();
 
 	print_kernel_cmdline(saved_command_line);
-	/* parameters may set static keys */
+	/* 早期参数可能会修改 static key。 */
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
 				  static_command_line, __start___param,
@@ -1052,12 +1063,11 @@ void start_kernel(void)
 		parse_args("Setting extra init args", extra_init_args,
 			   NULL, 0, -1, -1, NULL, set_init_arg);
 
-	/* Architectural and non-timekeeping rng init, before allocator init */
+	/* 在分配器完全初始化前，先做架构相关/非时间源的随机数早期初始化。 */
 	random_init_early(command_line);
 
 	/*
-	 * These use large bootmem allocations and must precede
-	 * initalization of page allocator
+	 * 下面这些会使用较大的 bootmem 分配，必须早于页分配器完整初始化。
 	 */
 	setup_log_buf(0);
 	vfs_caches_init_early();
@@ -1068,13 +1078,12 @@ void start_kernel(void)
 	poking_init();
 	ftrace_init();
 
-	/* trace_printk can be enabled here */
+	/* 到这里可以启用 trace_printk 等早期追踪能力。 */
 	early_trace_init();
 
 	/*
-	 * Set up the scheduler prior starting any interrupts (such as the
-	 * timer interrupt). Full topology setup happens at smp_init()
-	 * time - but meanwhile we still have a functioning scheduler.
+	 * 在任何中断（比如时钟中断）开始前，先把调度器最小可用版本建好。
+	 * 完整拓扑会在 smp_init() 阶段完成，但此时调度器已可工作。
 	 */
 	sched_init();
 
@@ -1084,29 +1093,30 @@ void start_kernel(void)
 	radix_tree_init();
 
 	/*
-	 * Set up housekeeping before setting up workqueues to allow the unbound
-	 * workqueue to take non-housekeeping into account.
+	 * 在 workqueue 前先初始化 housekeeping，使 unbound workqueue
+	 * 能正确避开 non-housekeeping CPU。
 	 */
 	housekeeping_init();
 
 	/*
-	 * Allow workqueue creation and work item queueing/cancelling
-	 * early.  Work item execution depends on kthreads and starts after
-	 * workqueue_init().
+	 * 允许在早期创建 workqueue 及排队/取消 work。
+	 * 真正执行 work 依赖 kthread，会在后续 workqueue_init() 后进行。
 	 */
 	workqueue_init_early();
 
+	/* RCU 主体与 kvfree_rcu 支持初始化。 */
 	rcu_init();
 	kvfree_rcu_init();
 
-	/* Trace events are available after this */
+	/* trace event 框架在此后可用。 */
 	trace_init();
 
 	if (initcall_debug)
 		initcall_debug_enable();
 
+	/* 初始化上下文追踪、IRQ、时钟与软中断等时间基础设施。 */
 	context_tracking_init();
-	/* init some links before init_ISA_irqs() */
+	/* 在 init_IRQ 前先完成早期 IRQ 链接结构初始化。 */
 	early_irq_init();
 	init_IRQ();
 	tick_init();
@@ -1118,10 +1128,10 @@ void start_kernel(void)
 	timekeeping_init();
 	time_init();
 
-	/* This must be after timekeeping is initialized */
+	/* 必须在 timekeeping 初始化后再完成随机数完整初始化。 */
 	random_init();
 
-	/* These make use of the fully initialized rng */
+	/* 这些功能依赖完整随机源。 */
 	kfence_init();
 	boot_init_stack_canary();
 
@@ -1133,12 +1143,12 @@ void start_kernel(void)
 	early_boot_irqs_disabled = false;
 	local_irq_enable();
 
+	/* slab/slub 后期初始化。 */
 	kmem_cache_init_late();
 
 	/*
-	 * HACK ALERT! This is early. We're enabling the console before
-	 * we've done PCI setups etc, and console_init() must be aware of
-	 * this. But we do want output early, in case something goes wrong.
+	 * 注意：这里仍然偏早。我们在 PCI 等完整初始化前就启用控制台，
+	 * console_init() 必须能处理这种早期状态；这样失败时能尽早看到日志。
 	 */
 	console_init();
 	if (panic_later)
@@ -1148,9 +1158,8 @@ void start_kernel(void)
 	lockdep_init();
 
 	/*
-	 * Need to run this when irqs are enabled, because it wants
-	 * to self-test [hard/soft]-irqs on/off lock inversion bugs
-	 * too:
+	 * 该自检需要在开中断后执行，用来覆盖 hard/soft irq 开关状态下
+	 * 的锁反转问题检测。
 	 */
 	locking_selftest();
 
@@ -1163,6 +1172,7 @@ void start_kernel(void)
 		initrd_start = 0;
 	}
 #endif
+	/* 继续完成内存策略、时钟校准与体系结构 CPU 收尾初始化。 */
 	setup_per_cpu_pageset();
 	numa_policy_init();
 	acpi_early_init();
@@ -1173,6 +1183,7 @@ void start_kernel(void)
 
 	arch_cpu_finalize_init();
 
+	/* 创建运行期所需核心对象：PID、VFS、命名空间、cgroup、安全等。 */
 	pid_idr_init();
 	anon_vma_init();
 	thread_stack_cache_init();
@@ -1202,12 +1213,12 @@ void start_kernel(void)
 	arch_post_acpi_subsys_init();
 	kcsan_init();
 
-	/* Do the rest non-__init'ed, we're now alive */
+	/* 后续流程在非 __init 上下文继续：创建 PID 1/PID 2 并切入 idle。 */
 	rest_init();
 
 	/*
-	 * Avoid stack canaries in callers of boot_init_stack_canary for gcc-10
-	 * and older.
+	 * 对 gcc-10 及更老版本：避免在 boot_init_stack_canary 调用链上
+	 * 引入栈 canary 相关优化副作用。
 	 */
 #if !__has_attribute(__no_stack_protector__)
 	prevent_tail_call_optimization();
@@ -1570,36 +1581,49 @@ static int __ref kernel_init(void *unused)
 {
 	int ret;
 
+	/* 在 kthreadd（PID 2）完全就绪前不要继续。 */
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
 	wait_for_completion(&kthreadd_done);
 
+	/* 执行可睡眠的后期启动初始化，完成核心子系统准备。 */
 	kernel_init_freeable();
 	/* need to finish all async __init code before freeing the memory */
+	/* 确保没有异步初始化仍在执行 __init 段代码/数据。 */
 	async_synchronize_full();
 
+	/* 即将回收一次性启动内存，并收敛内存权限。 */
 	system_state = SYSTEM_FREEING_INITMEM;
+	/* 先释放调试/跟踪子系统占用的临时 init 段。 */
 	kprobe_free_init_mem();
 	ftrace_free_init_mem();
 	kgdb_free_init_mem();
+	/* 释放 bootconfig 及通用 __init 内存。 */
 	exit_boot_config();
 	free_initmem();
+	/* init 代码不再需要写权限后，强制收敛到 RO/X 策略。 */
 	mark_readonly();
 
 	/*
 	 * Kernel mappings are now finalized - update the userspace page-table
 	 * to finalize PTI.
 	 */
+	/* 在内核映射布局稳定后，完成 PTI 相关页表收尾。 */
 	pti_finalize();
 
+	/* 切换到正常运行状态。 */
 	system_state = SYSTEM_RUNNING;
+	/* 重新应用运行期默认 NUMA 策略。 */
 	numa_default_policy();
 
+	/* 结束“内核启动期 RCU”特殊模式。 */
 	rcu_end_inkernel_boot();
 
+	/* 应用命令行中的 sysctl.* 参数。 */
 	do_sysctl_args();
 
+	/* 1）最高优先级：rdinit=...（通常来自 initramfs 场景）。 */
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
 		if (!ret)
@@ -1614,6 +1638,7 @@ static int __ref kernel_init(void *unused)
 	 * The Bourne shell can be used instead of init if we are
 	 * trying to recover a really broken machine.
 	 */
+	/* 2）用户显式指定的 init=...。 */
 	if (execute_command) {
 		ret = run_init_process(execute_command);
 		if (!ret)
@@ -1622,6 +1647,7 @@ static int __ref kernel_init(void *unused)
 		      execute_command, ret);
 	}
 
+	/* 3）Kconfig 里的内置默认 init 路径。 */
 	if (CONFIG_DEFAULT_INIT[0] != '\0') {
 		ret = run_init_process(CONFIG_DEFAULT_INIT);
 		if (ret)
@@ -1631,12 +1657,14 @@ static int __ref kernel_init(void *unused)
 			return 0;
 	}
 
+	/* 4）传统回退顺序。 */
 	if (!try_to_run_init_process("/sbin/init") ||
 	    !try_to_run_init_process("/etc/init") ||
 	    !try_to_run_init_process("/bin/init") ||
 	    !try_to_run_init_process("/bin/sh"))
 		return 0;
 
+	/* 仍无可执行 init：直接 panic 并给出指引。 */
 	panic("No working init found.  Try passing init= option to kernel. "
 	      "See Linux Documentation/admin-guide/init.rst for guidance.");
 }
@@ -1659,37 +1687,51 @@ void __init console_on_rootfs(void)
 static noinline void __init kernel_init_freeable(void)
 {
 	/* Now the scheduler is fully set up and can do blocking allocations */
+	/* 从这里开始允许正常 GFP 分配。 */
 	gfp_allowed_mask = __GFP_BITS_MASK;
 
 	/*
 	 * init can allocate pages on any node
 	 */
+	/* 允许 PID 1 从任意在线内存节点分配。 */
 	set_mems_allowed(node_states[N_MEMORY]);
 
+	/* 记录 Ctrl-Alt-Del 的目标 pid（初始就是当前 PID 1）。 */
 	cad_pid = get_pid(task_pid(current));
 
+	/* 在 SMP 正式拉起前，先准备次级 CPU。 */
 	smp_prepare_cpus(setup_max_cpus);
 
+	/* 初始化 workqueue 基础设施（worker 随后启动）。 */
 	workqueue_init();
 
+	/* 现在调度/分配器可用，收尾 init_mm 内部状态。 */
 	init_mm_internals();
 
+	/* 执行必须在 full SMP online 前完成的最早期 initcall。 */
 	do_pre_smp_initcalls();
+	/* 在时钟/中断上下文可用后，初始化锁死检测器。 */
 	lockup_detector_init();
 
+	/* 拉起次级 CPU，并完成 SMP 调度拓扑。 */
 	smp_init();
 	sched_init_smp();
 
+	/* 收尾并行执行基础设施与页分配器后期初始化。 */
 	workqueue_init_topology();
 	async_init();
 	padata_init();
 	page_alloc_init_late();
 
+	/* 执行驱动核心初始化与常规 initcall 级别（core..late）。 */
 	do_basic_setup();
 
+	/* 若开启 KUnit，则执行内置测试。 */
 	kunit_run_all_tests();
 
+	/* 确保内建/外部 initramfs 已完成解包。 */
 	wait_for_initramfs();
+	/* 将 PID 1 的 stdin/stdout/stderr 绑定到 /dev/console。 */
 	console_on_rootfs();
 
 	/*
@@ -1697,11 +1739,13 @@ static noinline void __init kernel_init_freeable(void)
 	 * the work
 	 */
 	int ramdisk_command_access;
+	/* 校验 rdinit 路径；若不可访问则回退到常规根文件系统流程。 */
 	ramdisk_command_access = init_eaccess(ramdisk_execute_command);
 	if (ramdisk_command_access != 0) {
 		pr_warn("check access for rdinit=%s failed: %i, ignoring\n",
 			ramdisk_execute_command, ramdisk_command_access);
 		ramdisk_execute_command = NULL;
+		/* 挂载并切换到配置的根文件系统命名空间。 */
 		prepare_namespace();
 	}
 
@@ -1714,5 +1758,6 @@ static noinline void __init kernel_init_freeable(void)
 	 * and default modules
 	 */
 
+	/* 加载完整性子系统使用的内建/受信任密钥。 */
 	integrity_load_keys();
 }
