@@ -81,12 +81,12 @@ echo "[2/4] enforce NFS root + debug-friendly kernel config"
 make -C "$KDIR" O="$OUT_DIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" olddefconfig
 
 # 第三步：按当前配置重新编译内核镜像与设备树。
-echo "[3/4] rebuild kernel Image + dtbs for NFS root"
+echo "[3/4] rebuild kernel Image + zImage + dtbs for NFS root"
 # 打印本次生效的 KCFLAGS，便于排错。
 echo "KCFLAGS=$KCFLAGS"
-# 编译 Image 与 dtbs；使用并行加速。
+# 编译 Image、zImage 与 dtbs；使用并行加速。
 make -C "$KDIR" O="$OUT_DIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" \
-  KCFLAGS="$KCFLAGS" -j"$JOBS" Image dtbs
+  KCFLAGS="$KCFLAGS" -j"$JOBS" Image zImage dtbs
 
 # 第四步：回显关键配置，确认脚本确实生效。
 echo "[4/4] show effective rootfs-related config"
@@ -99,6 +99,8 @@ echo
 echo "Done."
 # 输出内核镜像路径。
 echo "kernel: $OUT_DIR/arch/arm/boot/Image"
+# 输出压缩内核镜像路径。
+echo "zImage: $OUT_DIR/arch/arm/boot/zImage"
 # 空行分隔。
 echo
 # 给出下一步运行方式。

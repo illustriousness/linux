@@ -48,8 +48,8 @@
     },
     "settings": {
         "clangd.arguments": [
-            "--compile-commands-dir=.",
-            "--header-insertion=never"
+            "--header-insertion=never",
+            "--query-driver=/usr/bin/arm-linux-gnueabihf-*"
         ],
         "files.exclude": {
             ".cache": true,

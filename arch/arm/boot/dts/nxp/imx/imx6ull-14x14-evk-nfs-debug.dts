@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+
+/dts-v1/;
+
+#include "imx6ull-14x14-evk.dts"
+
+/ {
+	model = "Freescale i.MX6ULL 14x14 EVK NFS Debug Board";
+
+	sound-wm8960 {
+		status = "disabled";
+	};
+
+	panel {
+		status = "disabled";
+	};
+
+	backlight-display {
+		status = "disabled";
+	};
+
+	spi-4 {
+		status = "disabled";
+	};
+};
+
+&i2c1 {
+	status = "disabled";
+};
+
+&i2c2 {
+	status = "disabled";
+};
+
+&csi {
+	status = "disabled";
+};
+
+&lcdif {
+	status = "disabled";
+};
+
+&pwm1 {
+	status = "disabled";
+};
+
+&qspi {
+	status = "disabled";
+};
+
+&sai2 {
+	status = "disabled";
+};
+
+&can1 {
+	status = "disabled";
+};
+
+&can2 {
+	status = "disabled";
+};
+
+&tsc {
+	status = "disabled";
+};
+
+&reg_can_3v3 {
+	status = "disabled";
+};
+
+/* 迁移旧版可用 dtb 的 PHY 复位时序配置，降低 FEC/PHY 初始化失败概率。 */
+&fec1 {
+	pinctrl-0 = <&pinctrl_enet1 &pinctrl_fec1_reset>;
+	phy-reset-gpios = <&gpio5 7 GPIO_ACTIVE_LOW>;
+	phy-reset-duration = <200>;
+};
+
+&fec2 {
+	status = "okay";
+	pinctrl-0 = <&pinctrl_enet2 &pinctrl_fec2_reset>;
+	phy-reset-gpios = <&gpio5 8 GPIO_ACTIVE_LOW>;
+	phy-reset-duration = <200>;
+};
+
+&iomuxc {
+	/* FEC1 PHY 复位脚（GPIO5_IO07）。 */
+	pinctrl_fec1_reset: fec1-reset-grp {
+		fsl,pins = <
+			MX6UL_PAD_SNVS_TAMPER7__GPIO5_IO07	0x79
+		>;
+	};
+
+	/* FEC2 PHY 复位脚（GPIO5_IO08）。 */
+	pinctrl_fec2_reset: fec2-reset-grp {
+		fsl,pins = <
+			MX6UL_PAD_SNVS_TAMPER8__GPIO5_IO08	0x79
+		>;
+	};
+};

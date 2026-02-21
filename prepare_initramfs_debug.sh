@@ -55,9 +55,19 @@ make -C "$KDIR" O="$OUT_DIR" ARCH="$ARCH" CROSS_COMPILE="$CROSS_COMPILE" olddefc
 DEFAULT_KCFLAGS="-O1 -fno-omit-frame-pointer -fno-optimize-sibling-calls"
 # DEFAULT_KCFLAGS="-O0"
 KCFLAGS="${KCFLAGS:-$DEFAULT_KCFLAGS}"
+FORCE_REBUILD_BUSYBOX="${FORCE_REBUILD_BUSYBOX:-1}"
 
 echo "[debug 3/4] build kernel+initramfs with KCFLAGS"
 echo "KCFLAGS=$KCFLAGS"
+
+if [[ "$FORCE_REBUILD_BUSYBOX" == "1" ]]; then
+  # Debug 流程默认强制重编 BusyBox，避免误复用外部稳定二进制。
+  BUSYBOX_BIN_OVERRIDE=""
+  SKIP_BUSYBOX_OVERRIDE="0"
+else
+  BUSYBOX_BIN_OVERRIDE="${BUSYBOX_BIN:-}"
+  SKIP_BUSYBOX_OVERRIDE="${SKIP_BUSYBOX:-0}"
+fi
 
 KCFLAGS="$KCFLAGS" \
 KDIR="$KDIR" \
@@ -66,6 +76,8 @@ ARCH="$ARCH" \
 CROSS_COMPILE="$CROSS_COMPILE" \
 DEFCONFIG="$DEFCONFIG" \
 JOBS="$JOBS" \
+BUSYBOX_BIN="$BUSYBOX_BIN_OVERRIDE" \
+SKIP_BUSYBOX="$SKIP_BUSYBOX_OVERRIDE" \
 "$BASE_SCRIPT"
 
 echo "[debug 4/4] verify effective compile flags from .cmd"

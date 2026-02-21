@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# 启用严格模式：
+# -e: 任一命令失败立即退出
+# -u: 使用未定义变量时报错
+# -o pipefail: 管道中任一命令失败即整体失败
+set -euo pipefail
+
+  SRC_ROOTFS=/home/lyc/srv/nfs/rootfs
+  STAGE_ROOTFS=/tmp/initramfs-root.from-nfs
+
+  rm -rf "$STAGE_ROOTFS"
+  mkdir -p "$STAGE_ROOTFS"
+
+  rsync -a --delete \
+    --exclude='/.ash_history' \
+    --exclude='/root/.ash_history' \
+    --exclude='/dev/*' \
+    "$SRC_ROOTFS"/ "$STAGE_ROOTFS"/
+
+  SKIP_BUSYBOX=1 \
+  INITRAMFS_WORK="$STAGE_ROOTFS" \
+  INITRAMFS_IMG=/tmp/initramfs-from-rootfs.cpio.gz \
+  ./prepare_initramfs.sh
